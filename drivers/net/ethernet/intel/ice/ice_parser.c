@@ -2355,13 +2355,13 @@ static bool ice_nearest_proto_id(struct ice_parser_result *rslt, u16 offset,
  * @msk_buf: packet mask buffer
  * @buf_len: packet length
  * @blk: FXP pipeline stage
+ * @prefix_match: match protocol stack exactly or only prefix
  * @prof: input/output parameter to save the profile
- *
- * Return: 0 on success or errno on failure.
  */
 int ice_parser_profile_init(struct ice_parser_result *rslt,
 			    const u8 *pkt_buf, const u8 *msk_buf,
 			    int buf_len, enum ice_block blk,
+			    bool prefix_match,
 			    struct ice_parser_profile *prof)
 {
 	u8 proto_id = U8_MAX;
