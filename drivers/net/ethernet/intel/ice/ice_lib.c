@@ -1564,7 +1564,7 @@ static void ice_vsi_set_vf_rss_flow_fld(struct ice_vsi *vsi)
 		return;
 	}
 
-	status = ice_add_avf_rss_cfg(&pf->hw, vsi, ICE_DEFAULT_RSS_HENA);
+	status = ice_add_avf_rss_cfg(&pf->hw, vsi->idx, ICE_DEFAULT_RSS_HENA);
 	if (status)
 		dev_dbg(dev, "ice_add_avf_rss_cfg failed for vsi = %d, error = %d\n",
 			vsi->vsi_num, status);
@@ -1586,25 +1586,6 @@ static const struct ice_rss_hash_cfg default_rss_cfgs[] = {
 	 */
 	{ICE_FLOW_SEG_HDR_SCTP | ICE_FLOW_SEG_HDR_IPV4,
 		ICE_HASH_SCTP_IPV4, ICE_RSS_OUTER_HEADERS, false},
-	/* configure RSS for gtpc4 with input set IPv4 src/dst */
-	{ICE_FLOW_SEG_HDR_GTPC | ICE_FLOW_SEG_HDR_IPV4,
-		ICE_FLOW_HASH_IPV4, ICE_RSS_OUTER_HEADERS, false},
-	/* configure RSS for gtpc4t with input set IPv4 src/dst */
-	{ICE_FLOW_SEG_HDR_GTPC_TEID | ICE_FLOW_SEG_HDR_IPV4,
-		ICE_FLOW_HASH_GTP_C_IPV4_TEID, ICE_RSS_OUTER_HEADERS, false},
-	/* configure RSS for gtpu4 with input set IPv4 src/dst */
-	{ICE_FLOW_SEG_HDR_GTPU_IP | ICE_FLOW_SEG_HDR_IPV4,
-		ICE_FLOW_HASH_GTP_U_IPV4_TEID, ICE_RSS_OUTER_HEADERS, false},
-	/* configure RSS for gtpu4e with input set IPv4 src/dst */
-	{ICE_FLOW_SEG_HDR_GTPU_EH | ICE_FLOW_SEG_HDR_IPV4,
-		ICE_FLOW_HASH_GTP_U_IPV4_EH, ICE_RSS_OUTER_HEADERS, false},
-	/* configure RSS for gtpu4u with input set IPv4 src/dst */
-	{ ICE_FLOW_SEG_HDR_GTPU_UP | ICE_FLOW_SEG_HDR_IPV4,
-		ICE_FLOW_HASH_GTP_U_IPV4_UP, ICE_RSS_OUTER_HEADERS, false},
-	/* configure RSS for gtpu4d with input set IPv4 src/dst */
-	{ICE_FLOW_SEG_HDR_GTPU_DWN | ICE_FLOW_SEG_HDR_IPV4,
-		ICE_FLOW_HASH_GTP_U_IPV4_DWN, ICE_RSS_OUTER_HEADERS, false},
-
 	/* configure RSS for tcp6 with input set IPv6 src/dst, TCP src/dst */
 	{ICE_FLOW_SEG_HDR_TCP | ICE_FLOW_SEG_HDR_IPV6,
 				ICE_HASH_TCP_IPV6,  ICE_RSS_ANY_HEADERS, false},
@@ -1618,25 +1599,7 @@ static const struct ice_rss_hash_cfg default_rss_cfgs[] = {
 		ICE_HASH_SCTP_IPV6, ICE_RSS_OUTER_HEADERS, false},
 	/* configure RSS for IPSEC ESP SPI with input set MAC_IPV4_SPI */
 	{ICE_FLOW_SEG_HDR_ESP,
-		ICE_FLOW_HASH_ESP_SPI, ICE_RSS_OUTER_HEADERS, false},
-	/* configure RSS for gtpc6 with input set IPv6 src/dst */
-	{ICE_FLOW_SEG_HDR_GTPC | ICE_FLOW_SEG_HDR_IPV6,
-		ICE_FLOW_HASH_IPV6, ICE_RSS_OUTER_HEADERS, false},
-	/* configure RSS for gtpc6t with input set IPv6 src/dst */
-	{ICE_FLOW_SEG_HDR_GTPC_TEID | ICE_FLOW_SEG_HDR_IPV6,
-		ICE_FLOW_HASH_GTP_C_IPV6_TEID, ICE_RSS_OUTER_HEADERS, false},
-	/* configure RSS for gtpu6 with input set IPv6 src/dst */
-	{ICE_FLOW_SEG_HDR_GTPU_IP | ICE_FLOW_SEG_HDR_IPV6,
-		ICE_FLOW_HASH_GTP_U_IPV6_TEID, ICE_RSS_OUTER_HEADERS, false},
-	/* configure RSS for gtpu6e with input set IPv6 src/dst */
-	{ICE_FLOW_SEG_HDR_GTPU_EH | ICE_FLOW_SEG_HDR_IPV6,
-		ICE_FLOW_HASH_GTP_U_IPV6_EH, ICE_RSS_OUTER_HEADERS, false},
-	/* configure RSS for gtpu6u with input set IPv6 src/dst */
-	{ ICE_FLOW_SEG_HDR_GTPU_UP | ICE_FLOW_SEG_HDR_IPV6,
-		ICE_FLOW_HASH_GTP_U_IPV6_UP, ICE_RSS_OUTER_HEADERS, false},
-	/* configure RSS for gtpu6d with input set IPv6 src/dst */
-	{ICE_FLOW_SEG_HDR_GTPU_DWN | ICE_FLOW_SEG_HDR_IPV6,
-		ICE_FLOW_HASH_GTP_U_IPV6_DWN, ICE_RSS_OUTER_HEADERS, false},
+		ICE_FLOW_HASH_ESP_SPI, ICE_RSS_OUTER_HEADERS, false },
 };
 
 /**
@@ -1652,11 +1615,10 @@ static const struct ice_rss_hash_cfg default_rss_cfgs[] = {
  */
 static void ice_vsi_set_rss_flow_fld(struct ice_vsi *vsi)
 {
-	u16 vsi_num = vsi->vsi_num;
+	u16 vsi_handle = vsi->idx, vsi_num = vsi->vsi_num;
 	struct ice_pf *pf = vsi->back;
 	struct ice_hw *hw = &pf->hw;
 	struct device *dev;
-	int status;
 	u32 i;
 
 	dev = ice_pf_to_dev(pf);
@@ -1665,14 +1627,16 @@ static void ice_vsi_set_rss_flow_fld(struct ice_vsi *vsi)
 			vsi_num);
 		return;
 	}
+
 	for (i = 0; i < ARRAY_SIZE(default_rss_cfgs); i++) {
 		const struct ice_rss_hash_cfg *cfg = &default_rss_cfgs[i];
+		int status;
 
-		status = ice_add_rss_cfg(hw, vsi, cfg);
+		status = ice_add_rss_cfg(hw, vsi_handle, cfg);
 		if (status)
 			dev_dbg(dev, "ice_add_rss_cfg failed, addl_hdrs = %x, hash_flds = %llx, hdr_type = %d, symm = %d\n",
-				cfg->addl_hdrs, cfg->hash_flds,
-				cfg->hdr_type, cfg->symm);
+				cfg->addl_hdrs, cfg->hash_flds, cfg->hdr_type,
+				cfg->symm);
 	}
 }
 

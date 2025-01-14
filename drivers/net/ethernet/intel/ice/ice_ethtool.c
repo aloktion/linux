@@ -2883,15 +2883,27 @@ static u32 ice_parse_hdrs(struct ethtool_rxnfc *nfc)
 	return hdrs;
 }
 
+#define ICE_FLOW_HASH_FLD_IPV4_SA	BIT_ULL(ICE_FLOW_FIELD_IDX_IPV4_SA)
+#define ICE_FLOW_HASH_FLD_IPV6_SA	BIT_ULL(ICE_FLOW_FIELD_IDX_IPV6_SA)
+#define ICE_FLOW_HASH_FLD_IPV4_DA	BIT_ULL(ICE_FLOW_FIELD_IDX_IPV4_DA)
+#define ICE_FLOW_HASH_FLD_IPV6_DA	BIT_ULL(ICE_FLOW_FIELD_IDX_IPV6_DA)
+#define ICE_FLOW_HASH_FLD_TCP_SRC_PORT	BIT_ULL(ICE_FLOW_FIELD_IDX_TCP_SRC_PORT)
+#define ICE_FLOW_HASH_FLD_TCP_DST_PORT	BIT_ULL(ICE_FLOW_FIELD_IDX_TCP_DST_PORT)
+#define ICE_FLOW_HASH_FLD_UDP_SRC_PORT	BIT_ULL(ICE_FLOW_FIELD_IDX_UDP_SRC_PORT)
+#define ICE_FLOW_HASH_FLD_UDP_DST_PORT	BIT_ULL(ICE_FLOW_FIELD_IDX_UDP_DST_PORT)
+#define ICE_FLOW_HASH_FLD_SCTP_SRC_PORT	\
+	BIT_ULL(ICE_FLOW_FIELD_IDX_SCTP_SRC_PORT)
+#define ICE_FLOW_HASH_FLD_SCTP_DST_PORT	\
+	BIT_ULL(ICE_FLOW_FIELD_IDX_SCTP_DST_PORT)
+
 /**
  * ice_parse_hash_flds - parses hash fields from RSS hash input
  * @nfc: ethtool rxnfc command
- * @symm: true if Symmetric Topelitz is set
  *
  * This function parses the rxnfc command and returns intended
  * hash fields for RSS configuration
  */
-static u64 ice_parse_hash_flds(struct ethtool_rxnfc *nfc, bool symm)
+static u64 ice_parse_hash_flds(struct ethtool_rxnfc *nfc)
 {
 	u64 hfld = ICE_HASH_INVALID;
 
@@ -2900,12 +2912,6 @@ static u64 ice_parse_hash_flds(struct ethtool_rxnfc *nfc, bool symm)
 		case TCP_V4_FLOW:
 		case UDP_V4_FLOW:
 		case SCTP_V4_FLOW:
-		case GTPU_V4_FLOW:
-		case GTPC_V4_FLOW:
-		case GTPC_TEID_V4_FLOW:
-		case GTPU_EH_V4_FLOW:
-		case GTPU_UL_V4_FLOW:
-		case GTPU_DL_V4_FLOW:
 			if (nfc->data & RXH_IP_SRC)
 				hfld |= ICE_FLOW_HASH_FLD_IPV4_SA;
 			if (nfc->data & RXH_IP_DST)
@@ -2914,12 +2920,6 @@ static u64 ice_parse_hash_flds(struct ethtool_rxnfc *nfc, bool symm)
 		case TCP_V6_FLOW:
 		case UDP_V6_FLOW:
 		case SCTP_V6_FLOW:
-		case GTPU_V6_FLOW:
-		case GTPC_V6_FLOW:
-		case GTPC_TEID_V6_FLOW:
-		case GTPU_EH_V6_FLOW:
-		case GTPU_UL_V6_FLOW:
-		case GTPU_DL_V6_FLOW:
 			if (nfc->data & RXH_IP_SRC)
 				hfld |= ICE_FLOW_HASH_FLD_IPV6_SA;
 			if (nfc->data & RXH_IP_DST)
@@ -2958,33 +2958,6 @@ static u64 ice_parse_hash_flds(struct ethtool_rxnfc *nfc, bool symm)
 		}
 	}
 
-	if (nfc->data & RXH_GTP_TEID) {
-		switch (nfc->flow_type) {
-		case GTPC_TEID_V4_FLOW:
-		case GTPC_TEID_V6_FLOW:
-			hfld |= ICE_FLOW_HASH_FLD_GTPC_TEID;
-			break;
-		case GTPU_V4_FLOW:
-		case GTPU_V6_FLOW:
-			hfld |= ICE_FLOW_HASH_FLD_GTPU_IP_TEID;
-			break;
-		case GTPU_EH_V4_FLOW:
-		case GTPU_EH_V6_FLOW:
-			hfld |= ICE_FLOW_HASH_FLD_GTPU_EH_TEID;
-			break;
-		case GTPU_UL_V4_FLOW:
-		case GTPU_UL_V6_FLOW:
-			hfld |= ICE_FLOW_HASH_FLD_GTPU_UP_TEID;
-			break;
-		case GTPU_DL_V4_FLOW:
-		case GTPU_DL_V6_FLOW:
-			hfld |= ICE_FLOW_HASH_FLD_GTPU_DWN_TEID;
-			break;
-		default:
-			break;
-		}
-	}
-
 	return hfld;
 }
 
@@ -3014,7 +2987,7 @@ ice_set_rss_hash_opt(struct ice_vsi *vsi, struct ethtool_rxnfc *nfc)
 	}
 
 	symm = !!(vsi->rss_hfunc == ICE_AQ_VSI_Q_OPT_RSS_HASH_SYM_TPLZ);
-	hashed_flds = ice_parse_hash_flds(nfc, symm);
+	hashed_flds = ice_parse_hash_flds(nfc);
 	if (hashed_flds == ICE_HASH_INVALID) {
 		dev_dbg(dev, "Invalid hash fields, vsi num = %d\n",
 			vsi->vsi_num);
@@ -3033,7 +3006,7 @@ ice_set_rss_hash_opt(struct ice_vsi *vsi, struct ethtool_rxnfc *nfc)
 	cfg.hdr_type = ICE_RSS_ANY_HEADERS;
 	cfg.symm = symm;
 
-	status = ice_add_rss_cfg(&pf->hw, vsi, &cfg);
+	status = ice_add_rss_cfg(&pf->hw, vsi->idx, &cfg);
 	if (status) {
 		dev_dbg(dev, "ice_add_rss_cfg failed, vsi num = %d, error = %d\n",
 			vsi->vsi_num, status);
@@ -3054,7 +3027,6 @@ ice_get_rss_hash_opt(struct ice_vsi *vsi, struct ethtool_rxnfc *nfc)
 	struct ice_pf *pf = vsi->back;
 	struct device *dev;
 	u64 hash_flds;
-	bool symm;
 	u32 hdrs;
 
 	dev = ice_pf_to_dev(pf);
@@ -3073,7 +3045,7 @@ ice_get_rss_hash_opt(struct ice_vsi *vsi, struct ethtool_rxnfc *nfc)
 		return;
 	}
 
-	hash_flds = ice_get_rss_cfg(&pf->hw, vsi->idx, hdrs, &symm);
+	hash_flds = ice_get_rss_cfg(&pf->hw, vsi->idx, hdrs);
 	if (hash_flds == ICE_HASH_INVALID) {
 		dev_dbg(dev, "No hash fields found for the given header type, vsi num = %d\n",
 			vsi->vsi_num);
@@ -3097,13 +3069,6 @@ ice_get_rss_hash_opt(struct ice_vsi *vsi, struct ethtool_rxnfc *nfc)
 	    hash_flds & ICE_FLOW_HASH_FLD_UDP_DST_PORT ||
 	    hash_flds & ICE_FLOW_HASH_FLD_SCTP_DST_PORT)
 		nfc->data |= (u64)RXH_L4_B_2_3;
-
-	if (hash_flds & ICE_FLOW_HASH_FLD_GTPC_TEID ||
-	    hash_flds & ICE_FLOW_HASH_FLD_GTPU_IP_TEID ||
-	    hash_flds & ICE_FLOW_HASH_FLD_GTPU_EH_TEID ||
-	    hash_flds & ICE_FLOW_HASH_FLD_GTPU_UP_TEID ||
-	    hash_flds & ICE_FLOW_HASH_FLD_GTPU_DWN_TEID)
-		nfc->data |= (u64)RXH_GTP_TEID;
 }
 
 /**
@@ -3708,7 +3673,6 @@ ice_set_rxfh(struct net_device *netdev, struct ethtool_rxfh_param *rxfh,
 	     struct netlink_ext_ack *extack)
 {
 	struct ice_netdev_priv *np = netdev_priv(netdev);
-	u8 hfunc = ICE_AQ_VSI_Q_OPT_RSS_HASH_TPLZ;
 	struct ice_vsi *vsi = np->vsi;
 	struct ice_pf *pf = vsi->back;
 	struct device *dev;
@@ -3717,9 +3681,6 @@ ice_set_rxfh(struct net_device *netdev, struct ethtool_rxfh_param *rxfh,
 	dev = ice_pf_to_dev(pf);
 	if (rxfh->hfunc != ETH_RSS_HASH_NO_CHANGE &&
 	    rxfh->hfunc != ETH_RSS_HASH_TOP)
-		return -EOPNOTSUPP;
-
-	if (rxfh->rss_context)
 		return -EOPNOTSUPP;
 
 	if (!test_bit(ICE_FLAG_RSS_ENA, pf->flags)) {
@@ -3733,19 +3694,11 @@ ice_set_rxfh(struct net_device *netdev, struct ethtool_rxfh_param *rxfh,
 		return -EOPNOTSUPP;
 	}
 
-	/* Update the VSI's hash function */
-	if (rxfh->input_xfrm & RXH_XFRM_SYM_XOR)
-		hfunc = ICE_AQ_VSI_Q_OPT_RSS_HASH_SYM_TPLZ;
-
-	err = ice_set_rss_hfunc(vsi, hfunc);
-	if (err)
-		return err;
-
 	if (rxfh->key) {
 		if (!vsi->rss_hkey_user) {
-			vsi->rss_hkey_user =
-				devm_kzalloc(dev, ICE_VSIQF_HKEY_ARRAY_SIZE,
-					     GFP_KERNEL);
+			vsi->rss_hkey_user = devm_kzalloc(dev,
+							  ICE_VSIQF_HKEY_ARRAY_SIZE,
+							  GFP_KERNEL);
 			if (!vsi->rss_hkey_user)
 				return -ENOMEM;
 		}
@@ -3767,8 +3720,9 @@ ice_set_rxfh(struct net_device *netdev, struct ethtool_rxfh_param *rxfh,
 	/* Each 32 bits pointed by 'indir' is stored with a lut entry */
 	if (rxfh->indir) {
 		int i;
+		u16 table_size = (u16)vsi->rss_table_size;
 
-		for (i = 0; i < vsi->rss_table_size; i++)
+		for (i = 0; i < table_size; i++)
 			vsi->rss_lut_user[i] = (u8)(rxfh->indir[i]);
 	} else {
 		ice_fill_rss_lut(vsi->rss_lut_user, vsi->rss_table_size,

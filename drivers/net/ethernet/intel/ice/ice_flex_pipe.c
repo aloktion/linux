@@ -235,7 +235,7 @@ static bool ice_bits_max_set(const u8 *mask, u16 size, u16 max)
  *	dc == NULL --> dc mask is all 0's (no don't care bits)
  *	nm == NULL --> nm mask is all 0's (no never match bits)
  */
-static int
+int
 ice_set_key(u8 *key, u16 size, u8 *val, u8 *upd, u8 *dc, u8 *nm, u16 off,
 	    u16 len)
 {
@@ -292,15 +292,17 @@ void ice_release_change_lock(struct ice_hw *hw)
 	ice_release_res(hw, ICE_CHANGE_LOCK_RES_ID);
 }
 
+
 /**
  * ice_get_open_tunnel_port - retrieve an open tunnel port
  * @hw: pointer to the HW structure
+ * @type: tunnel type (TNL_ALL will return any open port)
  * @port: returns open port
  * @type: type of tunnel, can be TNL_LAST if it doesn't matter
  */
 bool
-ice_get_open_tunnel_port(struct ice_hw *hw, u16 *port,
-			 enum ice_tunnel_type type)
+ice_get_open_tunnel_port(struct ice_hw *hw, enum ice_tunnel_type type,
+			 u16 *port)
 {
 	bool res = false;
 	u16 i;
@@ -1217,29 +1219,24 @@ ice_prof_has_mask(struct ice_hw *hw, enum ice_block blk, u8 prof, u16 *masks)
  * @hw: pointer to the hardware structure
  * @blk: HW block
  * @fv: field vector to search for
- * @masks: masks for FV
- * @symm: symmetric setting for RSS flows
+ * @masks: masks for fv
  * @prof_id: receives the profile ID
  */
 static int
 ice_find_prof_id_with_mask(struct ice_hw *hw, enum ice_block blk,
-			   struct ice_fv_word *fv, u16 *masks, bool symm,
-			   u8 *prof_id)
+			   struct ice_fv_word *fv, u16 *masks, u8 *prof_id)
 {
 	struct ice_es *es = &hw->blk[blk].es;
 	u8 i;
 
-	/* For FD, we don't want to re-use a existed profile with the same
-	 * field vector and mask. This will cause rule interference.
+	/* For FD and RSS we don't want to re-use a existed profile with the
+	 * same field vector and mask. This will cause rule interference.
 	 */
-	if (blk == ICE_BLK_FD)
+	if (blk == ICE_BLK_FD || blk == ICE_BLK_RSS)
 		return -ENOENT;
 
 	for (i = 0; i < (u8)es->count; i++) {
 		u16 off = i * es->fvw;
-
-		if (blk == ICE_BLK_RSS && es->symm[i] != symm)
-			continue;
 
 		if (memcmp(&es->t[off], fv, es->fvw * sizeof(*fv)))
 			continue;
@@ -1721,16 +1718,15 @@ ice_update_prof_masking(struct ice_hw *hw, enum ice_block blk, u16 prof_id,
 }
 
 /**
- * ice_write_es - write an extraction sequence and symmetric setting to hardware
+ * ice_write_es - write an extraction sequence to hardware
  * @hw: pointer to the HW struct
  * @blk: the block in which to write the extraction sequence
  * @prof_id: the profile ID to write
  * @fv: pointer to the extraction sequence to write - NULL to clear extraction
- * @symm: symmetric setting for RSS profiles
  */
 static void
 ice_write_es(struct ice_hw *hw, enum ice_block blk, u8 prof_id,
-	     struct ice_fv_word *fv, bool symm)
+	     struct ice_fv_word *fv)
 {
 	u16 off;
 
@@ -1743,9 +1739,6 @@ ice_write_es(struct ice_hw *hw, enum ice_block blk, u8 prof_id,
 		memcpy(&hw->blk[blk].es.t[off], fv,
 		       hw->blk[blk].es.fvw * sizeof(*fv));
 	}
-
-	if (blk == ICE_BLK_RSS)
-		hw->blk[blk].es.symm[prof_id] = symm;
 }
 
 /**
@@ -1762,7 +1755,7 @@ ice_prof_dec_ref(struct ice_hw *hw, enum ice_block blk, u8 prof_id)
 
 	if (hw->blk[blk].es.ref_count[prof_id] > 0) {
 		if (!--hw->blk[blk].es.ref_count[prof_id]) {
-			ice_write_es(hw, blk, prof_id, NULL, false);
+			ice_write_es(hw, blk, prof_id, NULL);
 			ice_free_prof_masks(hw, blk, prof_id);
 			return ice_free_prof_id(hw, blk, prof_id);
 		}
@@ -3029,12 +3022,11 @@ ice_disable_fd_swap(struct ice_hw *hw, u8 prof_id)
  * @hw: pointer to the HW struct
  * @blk: hardware block
  * @id: profile tracking ID
- * @ptypes: array of bitmaps indicating ptypes (ICE_FLOW_PTYPE_MAX bits)
+ * @ptypes: bitmap indicating ptypes (ICE_FLOW_PTYPE_MAX bits)
  * @attr: array of attributes
- * @attr_cnt: number of elements in attr array
+ * @attr_cnt: number of elements in attrib array
  * @es: extraction sequence (length of array is determined by the block)
  * @masks: mask for extraction sequence
- * @symm: symmetric setting for RSS profiles
  * @fd_swap: enable/disable FDIR paired src/dst fields swap option
  *
  * This function registers a profile, which matches a set of PTYPES with a
@@ -3043,23 +3035,22 @@ ice_disable_fd_swap(struct ice_hw *hw, u8 prof_id)
  * the ID value used here.
  */
 int
-ice_add_prof(struct ice_hw *hw, enum ice_block blk, u64 id, u8 ptypes[],
-	     const struct ice_ptype_attributes *attr, u16 attr_cnt,
-	     struct ice_fv_word *es, u16 *masks, bool symm, bool fd_swap)
+ice_add_prof(struct ice_hw *hw, enum ice_block blk, u64 id,
+	     unsigned long *ptypes, const struct ice_ptype_attributes *attr,
+	     u16 attr_cnt, struct ice_fv_word *es, u16 *masks, bool fd_swap)
 {
-	u32 bytes = DIV_ROUND_UP(ICE_FLOW_PTYPE_MAX, BITS_PER_BYTE);
 	DECLARE_BITMAP(ptgs_used, ICE_XLT1_CNT);
 	struct ice_prof_map *prof;
-	u8 byte = 0;
-	u8 prof_id;
 	int status;
+	u8 prof_id;
+	u16 ptype;
 
 	bitmap_zero(ptgs_used, ICE_XLT1_CNT);
 
 	mutex_lock(&hw->blk[blk].es.prof_map_lock);
 
 	/* search for existing profile */
-	status = ice_find_prof_id_with_mask(hw, blk, es, masks, symm, &prof_id);
+	status = ice_find_prof_id_with_mask(hw, blk, es, masks, &prof_id);
 	if (status) {
 		/* allocate profile ID */
 		status = ice_alloc_prof_id(hw, blk, &prof_id);
@@ -3084,12 +3075,13 @@ ice_add_prof(struct ice_hw *hw, enum ice_block blk, u64 id, u8 ptypes[],
 			goto err_ice_add_prof;
 
 		/* and write new es */
-		ice_write_es(hw, blk, prof_id, es, symm);
+		ice_write_es(hw, blk, prof_id, es);
 	}
 
 	ice_prof_inc_ref(hw, blk, prof_id);
 
 	/* add profile info */
+
 	prof = devm_kzalloc(ice_hw_to_dev(hw), sizeof(*prof), GFP_KERNEL);
 	if (!prof) {
 		status = -ENOMEM;
@@ -3102,57 +3094,35 @@ ice_add_prof(struct ice_hw *hw, enum ice_block blk, u64 id, u8 ptypes[],
 	prof->context = 0;
 
 	/* build list of ptgs */
-	while (bytes && prof->ptg_cnt < ICE_MAX_PTG_PER_PROFILE) {
-		u8 bit;
+	for_each_set_bit(ptype, ptypes, ICE_FLOW_PTYPE_MAX) {
+		u8 ptg;
 
-		if (!ptypes[byte]) {
-			bytes--;
-			byte++;
+		/* The package should place all ptypes in a non-zero
+		 * PTG, so the following call should never fail.
+		 */
+		if (ice_ptg_find_ptype(hw, blk, ptype, &ptg))
 			continue;
-		}
 
-		/* Examine 8 bits per byte */
-		for_each_set_bit(bit, (unsigned long *)&ptypes[byte],
-				 BITS_PER_BYTE) {
-			u16 ptype;
-			u8 ptg;
+		/* If PTG is already added, skip and continue */
+		if (test_bit(ptg, ptgs_used))
+			continue;
 
-			ptype = byte * BITS_PER_BYTE + bit;
+		set_bit(ptg, ptgs_used);
+		/* Check to see there are any attributes for this ptype, and
+		 * add them if found.
+		 */
+		status = ice_add_prof_attrib(prof, ptg, ptype, attr, attr_cnt);
+		if (status == -ENOSPC)
+			break;
+		if (status) {
+			/* This is simple a ptype/PTG with no attribute */
+			prof->ptg[prof->ptg_cnt] = ptg;
+			prof->attr[prof->ptg_cnt].flags = 0;
+			prof->attr[prof->ptg_cnt].mask = 0;
 
-			/* The package should place all ptypes in a non-zero
-			 * PTG, so the following call should never fail.
-			 */
-			if (ice_ptg_find_ptype(hw, blk, ptype, &ptg))
-				continue;
-
-			/* If PTG is already added, skip and continue */
-			if (test_bit(ptg, ptgs_used))
-				continue;
-
-			__set_bit(ptg, ptgs_used);
-			/* Check to see there are any attributes for
-			 * this PTYPE, and add them if found.
-			 */
-			status = ice_add_prof_attrib(prof, ptg, ptype,
-						     attr, attr_cnt);
-			if (status == -ENOSPC)
+			if (++prof->ptg_cnt >= ICE_MAX_PTG_PER_PROFILE)
 				break;
-			if (status) {
-				/* This is simple a PTYPE/PTG with no
-				 * attribute
-				 */
-				prof->ptg[prof->ptg_cnt] = ptg;
-				prof->attr[prof->ptg_cnt].flags = 0;
-				prof->attr[prof->ptg_cnt].mask = 0;
-
-				if (++prof->ptg_cnt >=
-				    ICE_MAX_PTG_PER_PROFILE)
-					break;
-			}
 		}
-
-		bytes--;
-		byte++;
 	}
 
 	list_add(&prof->list, &hw->blk[blk].es.prof_map);
@@ -4141,6 +4111,55 @@ err_ice_add_prof_id_flow:
 		list_del(&del1->list);
 		devm_kfree(ice_hw_to_dev(hw), del1);
 	}
+
+	return status;
+}
+
+/**
+ * ice_flow_assoc_hw_prof - add profile id flow for main/ctrl VSI flow entry
+ * @hw: pointer to the HW struct
+ * @blk: HW block
+ * @dest_vsi_handle: dest VSI handle
+ * @fdir_vsi_handle: fdir programming VSI handle
+ * @id: profile id (handle)
+ *
+ * Calling this function will update the hardware tables to enable the
+ * profile indicated by the ID parameter for the VSIs specified in the VSI
+ * array. Once successfully called, the flow will be enabled.
+ */
+int
+ice_flow_assoc_hw_prof(struct ice_hw *hw, enum ice_block blk,
+		       u16 dest_vsi_handle, u16 fdir_vsi_handle, int id)
+{
+	int status = 0;
+	u16 vsi_num;
+
+	vsi_num = ice_get_hw_vsi_num(hw, dest_vsi_handle);
+	status = ice_add_prof_id_flow(hw, blk, vsi_num, id);
+	if (status) {
+		ice_debug(hw, ICE_DBG_FLOW, "HW profile add failed for main VSI flow entry, %d\n",
+			  status);
+		goto err_add_prof;
+	}
+
+	if (blk != ICE_BLK_FD)
+		return status;
+
+	vsi_num = ice_get_hw_vsi_num(hw, fdir_vsi_handle);
+	status = ice_add_prof_id_flow(hw, blk, vsi_num, id);
+	if (status) {
+		ice_debug(hw, ICE_DBG_FLOW, "HW profile add failed for ctrl VSI flow entry, %d\n",
+			  status);
+		goto err_add_entry;
+	}
+
+	return status;
+
+err_add_entry:
+	vsi_num = ice_get_hw_vsi_num(hw, dest_vsi_handle);
+	ice_rem_prof_id_flow(hw, blk, vsi_num, id);
+err_add_prof:
+	ice_flow_rem_prof(hw, blk, id);
 
 	return status;
 }

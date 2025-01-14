@@ -504,7 +504,7 @@ struct ice_parser {
 	struct ice_parser_rt rt;
 };
 
-struct ice_parser *ice_parser_create(struct ice_hw *hw);
+int ice_parser_create(struct ice_hw *hw, struct ice_parser **psr);
 void ice_parser_destroy(struct ice_parser *psr);
 void ice_parser_dvm_set(struct ice_parser *psr, bool on);
 int ice_parser_vxlan_tunnel_set(struct ice_parser *psr, u16 udp_port, bool on);
@@ -534,6 +534,7 @@ struct ice_parser_profile {
 int ice_parser_profile_init(struct ice_parser_result *rslt,
 			    const u8 *pkt_buf, const u8 *msk_buf,
 			    int buf_len, enum ice_block blk,
+			    bool prefix_match,
 			    struct ice_parser_profile *prof);
 void ice_parser_profile_dump(struct ice_hw *hw,
 			     struct ice_parser_profile *prof);

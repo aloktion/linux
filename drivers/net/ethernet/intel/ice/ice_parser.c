@@ -1987,126 +1987,125 @@ u16 ice_xlt_kb_flag_get(struct ice_xlt_kb *kb, u64 pkt_flag)
 	return flag;
 }
 
-/*** Parser API ***/
 /**
  * ice_parser_create - create a parser instance
  * @hw: pointer to the hardware structure
- *
- * Return: a pointer to the allocated parser instance or ERR_PTR
- * in case of error.
+ * @psr: output parameter for a new parser instance be created
  */
-struct ice_parser *ice_parser_create(struct ice_hw *hw)
+int ice_parser_create(struct ice_hw *hw, struct ice_parser **psr)
 {
 	struct ice_parser *p;
-	void *err;
+	int status;
 
-	p = kzalloc(sizeof(*p), GFP_KERNEL);
+	p = devm_kzalloc(ice_hw_to_dev(hw), sizeof(struct ice_parser),
+			 GFP_KERNEL);
 	if (!p)
-		return ERR_PTR(-ENOMEM);
+		return -ENOMEM;
 
 	p->hw = hw;
 	p->rt.psr = p;
 
 	p->imem_table = ice_imem_table_get(hw);
-	if (IS_ERR(p->imem_table)) {
-		err = p->imem_table;
+	if (!p->imem_table) {
+		status = -EINVAL;
 		goto err;
 	}
 
 	p->mi_table = ice_metainit_table_get(hw);
-	if (IS_ERR(p->mi_table)) {
-		err = p->mi_table;
+	if (!p->mi_table) {
+		status = -EINVAL;
 		goto err;
 	}
 
 	p->pg_cam_table = ice_pg_cam_table_get(hw);
-	if (IS_ERR(p->pg_cam_table)) {
-		err = p->pg_cam_table;
+	if (!p->pg_cam_table) {
+		status = -EINVAL;
 		goto err;
 	}
 
 	p->pg_sp_cam_table = ice_pg_sp_cam_table_get(hw);
-	if (IS_ERR(p->pg_sp_cam_table)) {
-		err = p->pg_sp_cam_table;
+	if (!p->pg_sp_cam_table) {
+		status = -EINVAL;
 		goto err;
 	}
 
 	p->pg_nm_cam_table = ice_pg_nm_cam_table_get(hw);
-	if (IS_ERR(p->pg_nm_cam_table)) {
-		err = p->pg_nm_cam_table;
+	if (!p->pg_nm_cam_table) {
+		status = -EINVAL;
 		goto err;
 	}
 
 	p->pg_nm_sp_cam_table = ice_pg_nm_sp_cam_table_get(hw);
-	if (IS_ERR(p->pg_nm_sp_cam_table)) {
-		err = p->pg_nm_sp_cam_table;
+	if (!p->pg_nm_sp_cam_table) {
+		status = -EINVAL;
 		goto err;
 	}
 
 	p->bst_tcam_table = ice_bst_tcam_table_get(hw);
-	if (IS_ERR(p->bst_tcam_table)) {
-		err = p->bst_tcam_table;
+	if (!p->bst_tcam_table) {
+		status = -EINVAL;
 		goto err;
 	}
 
 	p->bst_lbl_table = ice_bst_lbl_table_get(hw);
-	if (IS_ERR(p->bst_lbl_table)) {
-		err = p->bst_lbl_table;
+	if (!p->bst_lbl_table) {
+		status = -EINVAL;
 		goto err;
 	}
 
 	p->ptype_mk_tcam_table = ice_ptype_mk_tcam_table_get(hw);
-	if (IS_ERR(p->ptype_mk_tcam_table)) {
-		err = p->ptype_mk_tcam_table;
+	if (!p->ptype_mk_tcam_table) {
+		status = -EINVAL;
 		goto err;
 	}
 
 	p->mk_grp_table = ice_mk_grp_table_get(hw);
-	if (IS_ERR(p->mk_grp_table)) {
-		err = p->mk_grp_table;
+	if (!p->mk_grp_table) {
+		status = -EINVAL;
 		goto err;
 	}
 
 	p->proto_grp_table = ice_proto_grp_table_get(hw);
-	if (IS_ERR(p->proto_grp_table)) {
-		err = p->proto_grp_table;
+	if (!p->proto_grp_table) {
+		status = -EINVAL;
 		goto err;
 	}
 
 	p->flg_rd_table = ice_flg_rd_table_get(hw);
-	if (IS_ERR(p->flg_rd_table)) {
-		err = p->flg_rd_table;
+	if (!p->flg_rd_table) {
+		status = -EINVAL;
 		goto err;
 	}
 
 	p->xlt_kb_sw = ice_xlt_kb_get_sw(hw);
-	if (IS_ERR(p->xlt_kb_sw)) {
-		err = p->xlt_kb_sw;
+	if (!p->xlt_kb_sw) {
+		status = -EINVAL;
 		goto err;
 	}
 
 	p->xlt_kb_acl = ice_xlt_kb_get_acl(hw);
-	if (IS_ERR(p->xlt_kb_acl)) {
-		err = p->xlt_kb_acl;
+	if (!p->xlt_kb_acl) {
+		status = -EINVAL;
 		goto err;
 	}
 
 	p->xlt_kb_fd = ice_xlt_kb_get_fd(hw);
-	if (IS_ERR(p->xlt_kb_fd)) {
-		err = p->xlt_kb_fd;
+	if (!p->xlt_kb_fd) {
+		status = -EINVAL;
 		goto err;
 	}
 
 	p->xlt_kb_rss = ice_xlt_kb_get_rss(hw);
-	if (IS_ERR(p->xlt_kb_rss)) {
-		err = p->xlt_kb_rss;
+	if (!p->xlt_kb_rss) {
+		status = -EINVAL;
 		goto err;
 	}
 
-	return p;
+	*psr = p;
+	return 0;
 err:
 	ice_parser_destroy(p);
-	return err;
+	return status;
 }
 
 /**
@@ -2349,39 +2348,39 @@ static bool ice_nearest_proto_id(struct ice_parser_result *rslt, u16 offset,
 #define ICE_KEYBUILD_FLAG_MASK_DEFAULT_RSS	0x6010
 
 /**
- * ice_parser_profile_init - initialize a FXP profile based on parser result
+ * ice_parser_profile_init  - initialize a FXP profile base on parser result
  * @rslt: a instance of a parser result
  * @pkt_buf: packet data buffer
  * @msk_buf: packet mask buffer
  * @buf_len: packet length
  * @blk: FXP pipeline stage
+ * @prefix_match: match protocol stack exactly or only prefix
  * @prof: input/output parameter to save the profile
- *
- * Return: 0 on success or errno on failure.
  */
 int ice_parser_profile_init(struct ice_parser_result *rslt,
 			    const u8 *pkt_buf, const u8 *msk_buf,
 			    int buf_len, enum ice_block blk,
+			    bool prefix_match,
 			    struct ice_parser_profile *prof)
 {
-	u8 proto_id = U8_MAX;
+	u8 proto_id = 0xff;
 	u16 proto_off = 0;
 	u16 off;
 
 	memset(prof, 0, sizeof(*prof));
 	set_bit(rslt->ptype, prof->ptypes);
 	if (blk == ICE_BLK_SW) {
-		prof->flags	= rslt->flags_sw;
-		prof->flags_msk	= ICE_KEYBUILD_FLAG_MASK_DEFAULT_SW;
+		prof->flags = rslt->flags_sw;
+		prof->flags_msk = ICE_KEYBUILD_FLAG_MASK_DEFAULT_SW;
 	} else if (blk == ICE_BLK_ACL) {
-		prof->flags	= rslt->flags_acl;
-		prof->flags_msk	= ICE_KEYBUILD_FLAG_MASK_DEFAULT_ACL;
+		prof->flags = rslt->flags_acl;
+		prof->flags_msk = ICE_KEYBUILD_FLAG_MASK_DEFAULT_ACL;
 	} else if (blk == ICE_BLK_FD) {
-		prof->flags	= rslt->flags_fd;
-		prof->flags_msk	= ICE_KEYBUILD_FLAG_MASK_DEFAULT_FD;
+		prof->flags = rslt->flags_fd;
+		prof->flags_msk = ICE_KEYBUILD_FLAG_MASK_DEFAULT_FD;
 	} else if (blk == ICE_BLK_RSS) {
-		prof->flags	= rslt->flags_rss;
-		prof->flags_msk	= ICE_KEYBUILD_FLAG_MASK_DEFAULT_RSS;
+		prof->flags = rslt->flags_rss;
+		prof->flags_msk = ICE_KEYBUILD_FLAG_MASK_DEFAULT_RSS;
 	} else {
 		return -EINVAL;
 	}
@@ -2391,13 +2390,13 @@ int ice_parser_profile_init(struct ice_parser_result *rslt,
 			continue;
 		if (!ice_nearest_proto_id(rslt, off, &proto_id, &proto_off))
 			continue;
-		if (prof->fv_num >= ICE_PARSER_FV_MAX)
+		if (prof->fv_num >= 32)
 			return -EINVAL;
 
-		prof->fv[prof->fv_num].proto_id	= proto_id;
-		prof->fv[prof->fv_num].offset	= proto_off;
-		prof->fv[prof->fv_num].spec	= *(const u16 *)&pkt_buf[off];
-		prof->fv[prof->fv_num].msk	= *(const u16 *)&msk_buf[off];
+		prof->fv[prof->fv_num].proto_id = proto_id;
+		prof->fv[prof->fv_num].offset = proto_off;
+		prof->fv[prof->fv_num].spec = *(const u16 *)&pkt_buf[off];
+		prof->fv[prof->fv_num].msk = *(const u16 *)&msk_buf[off];
 		prof->fv_num++;
 	}
 
