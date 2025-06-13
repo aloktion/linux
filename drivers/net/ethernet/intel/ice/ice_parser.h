@@ -534,6 +534,7 @@ struct ice_parser_profile {
 int ice_parser_profile_init(struct ice_parser_result *rslt,
 			    const u8 *pkt_buf, const u8 *msk_buf,
 			    int buf_len, enum ice_block blk,
+			    bool prefix_match,
 			    struct ice_parser_profile *prof);
 void ice_parser_profile_dump(struct ice_hw *hw,
 			     struct ice_parser_profile *prof);
